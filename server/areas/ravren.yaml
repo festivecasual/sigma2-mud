@@ -1,0 +1,50 @@
+name: Ravren
+rooms:
+  palace-courtyard:
+    name: Palace - Courtyard
+    desc: >
+      You are standing in a courtyard outside a royal palace.  A colonnade stretches
+      out in front of you to the east and west.  To the north you see a tall door
+      embellished with painted depictions of battles and coronations.
+    exits:
+      n:
+        target: palace-interior
+        door: palace-front
+      e: palace-colonnade-e
+      w: palace-colonnade-w
+  palace-colonnade-e:
+    name: Palace - Colonnade (East Side)
+    desc: >
+      You are walking along the eastern colonnade of the palace complex.
+    exits:
+      w: palace-courtyard
+  palace-colonnade-w:
+    name: Palace - Colonnade (West Side)
+    desc: >
+      You are walking along the western colonnade of the palace complex.
+    exits:
+      e: palace-courtyard
+  palace-interior:
+    name: Palace - Interior
+    desc: >
+      You are inside the palace.  There is a trapdoor on the floor.
+    exits:
+      s:
+        target: palace-courtyard
+        door: palace-front
+      d:
+        target: palace-crypt
+        door: palace-crypt
+  palace-crypt:
+    name: Palace - Crypt
+    desc: >
+      You are in a spooky crypt beneath the palace.
+    exits:
+      u:
+        target: palace-interior
+        door: palace-crypt
+doors:
+  palace-front:
+  palace-crypt:
+    closed: true
+    locked: true
