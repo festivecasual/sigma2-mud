@@ -11,7 +11,7 @@ def canonical_id(area, id, only_local=False):
     if len(components) < 2:
         return f'{area}:{id}'
     elif only_local and components[0] != area:
-        log('External reference <{id}> provided when only a local one (in <{area}>) is valid', exit_code=1)
+        log(f'External reference <{id}> provided when only a local one (in <{area}>) is valid', exit_code=1)
     else:
         return id
 
@@ -22,13 +22,16 @@ class World(metaclass=Singleton):
             'verbose': True,
         }
         self.rooms = {}
+        self.doors = {}
         self.areas = {}
 
     def load(self, config_root):
+        # Loading a world always starts from a cleanly-initialized object
         self.__init__()
 
         log(f'Using config root [{config_root}]', 'STARTUP')
 
+        # Check for a config file and overwrite defaults with any parameters
         config_file = (config_root / 'config.yaml')
         if config_file.exists():
             with config_file.open() as f:
@@ -37,6 +40,7 @@ class World(metaclass=Singleton):
                 except KeyError:
                     log('Server config file must have configuration parameters as a child of a single element named <config>', exit_code=1)
 
+        # Load each area file
         for area_file in (config_root / 'areas').glob('*.yaml'):
             log(f'Importing area from [{area_file.relative_to(config_root)}]', 'IMPORT', trivial=True)
             area = area_file.stem
@@ -45,6 +49,20 @@ class World(metaclass=Singleton):
                     self.load_area(area, **yaml.safe_load(f))
                 except TypeError as e:
                     log(str(e), exit_code=1)
+
+        # Resolve room exit target and door linkages
+        for room_id, room in self.rooms.items():
+            for direction, exit_ in room.exits.items():
+                try:
+                    exit_.target = self.rooms[exit_.target]
+                except KeyError:
+                    log(f'Unable to resolve target <{exit_.target}> (in room <{room_id}>, direction <{direction}>)', exit_code=1)
+                if not exit_.door:
+                    continue
+                try:
+                    exit_.door = self.doors[exit_.door]
+                except KeyError:
+                    log(f'Unable to resolve door <{exit_.door}> (from room <{room_id}>, direction <{direction}>)', exit_code=1)
 
     def load_area(self, area_id, name=None, rooms={}, doors={}):
         if not name:
@@ -70,6 +88,7 @@ class World(metaclass=Singleton):
 
         self.areas[area_id] = area
         self.rooms.update(area['rooms'])
+        self.doors.update(area['doors'])
 
 
 class Room:
@@ -78,6 +97,7 @@ class Room:
             log(f'Area <{area_id}>: Room <{room_id}>: Must have "name" and "desc" parameters', exit_code=1)
 
         self.id = room_id
+        self.area_id = area_id
         self.name = name
         self.desc = desc
         self.exits = {}
@@ -100,6 +120,8 @@ class Exit:
         if not target:
             log(f'Area <{area_id}>: Room <{room_id}>: Exit <{direction}>: Must supply a target room', exit_code=1)
 
+        self.area_id = area_id
+        self.room_id = room_id
         self.direction = direction
         self.target = canonical_id(area_id, target)
         self.door = canonical_id(area_id, door) if door else None
@@ -107,5 +129,7 @@ class Exit:
 
 class Door:
     def __init__(self, area_id, door_id, closed=True, locked=False):
+        self.id = door_id
+        self.area_id = area_id
         self.closed = closed
         self.locked = locked

@@ -12,6 +12,7 @@ rooms:
         door: palace-front
       e: palace-colonnade-e
       w: palace-colonnade-w
+      s: island:shore
   palace-colonnade-e:
     name: Palace - Colonnade (East Side)
     desc: >

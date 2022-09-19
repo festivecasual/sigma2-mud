@@ -1,0 +1,8 @@
+name: Island
+rooms:
+  shore:
+    name: Island - Shore
+    desc: >
+      You are on the shoreline outside the city of Ravren.
+    exits:
+      n: ravren:palace-courtyard
