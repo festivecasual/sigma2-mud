@@ -1,9 +1,26 @@
+import sqlite3
+import json
+
 import yaml
 
 from common import log, Singleton
 
 
-valid_directions = ('n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw', 'u', 'd', 'enter', 'leave')
+directions = {
+    'n': 'north',
+    's': 'south',
+    'e': 'east',
+    'w': 'west',
+    'ne': 'northeast',
+    'nw': 'northwest',
+    'se': 'southeast',
+    'sw': 'southwest',
+    'u': 'up',
+    'd': 'down',
+    'enter': 'enter',
+    'leave': 'leave',
+}
+valid_directions = directions.keys()
 
 
 def canonical_id(area, id, only_local=False):
@@ -18,6 +35,7 @@ def canonical_id(area, id, only_local=False):
 
 class World(metaclass=Singleton):
     def __init__(self):
+        self.config_root = None
         self.config = {
             'verbose': True,
         }
@@ -25,20 +43,31 @@ class World(metaclass=Singleton):
         self.doors = {}
         self.areas = {}
 
-    def load(self, config_root):
-        # Loading a world always starts from a cleanly-initialized object
+    def setup(self, config_root):
+        # Setting up a world always starts from a cleanly-initialized object
         self.__init__()
+
+        self.config_root = config_root
 
         log(f'Using config root [{config_root}]', 'STARTUP')
 
         # Check for a config file and overwrite defaults with any parameters
-        config_file = (config_root / 'config.yaml')
+        config_file = config_root / 'config.yaml'
         if config_file.exists():
             with config_file.open() as f:
                 try:
                     self.config.update(yaml.safe_load(f)['config'])
                 except KeyError:
                     log('Server config file must have configuration parameters as a child of a single element named <config>', exit_code=1)
+
+        # Initialize a persistent database if we don't have one already
+        db_file = config_root / 'world.db'
+        if not db_file.exists():
+            log('No database found, initializing a blank one', 'DATABASE')
+            con = sqlite3.connect(db_file)
+            con.cursor().execute('CREATE TABLE players (username text primary key, data text)')
+            con.commit()
+            con.close()
 
         # Load each area file
         for area_file in (config_root / 'areas').glob('*.yaml'):
@@ -90,6 +119,16 @@ class World(metaclass=Singleton):
         self.rooms.update(area['rooms'])
         self.doors.update(area['doors'])
 
+    def retrieve_player_data(self, name):
+        con = sqlite3.connect(self.config_root / 'world.db')
+        result = con.cursor().execute('SELECT data FROM players WHERE username = ?', (name, )).fetchone()
+        con.close()
+
+        if not result:
+            return None
+        else:
+            return json.loads(result[0])
+
 
 class Room:
     def __init__(self, area_id, room_id, name=None, desc=None, exits={}):
@@ -123,6 +162,7 @@ class Exit:
         self.area_id = area_id
         self.room_id = room_id
         self.direction = direction
+        self.direction_label = directions[direction]
         self.target = canonical_id(area_id, target)
         self.door = canonical_id(area_id, door) if door else None
 
