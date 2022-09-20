@@ -40,7 +40,7 @@ class World(metaclass=Singleton):
             'verbose': True,
             'telnet_host': None,
             'telnet_port': 4000,
-            'welcome_message': '\r\nWelcome to sigma2-mud!\r\n\r\n'
+            'welcome_message': ['{bold}', 'Welcome to ', '{cyan}', 'sigma2-mud', '{reset}', '!'],
         }
         self.rooms = {}
         self.doors = {}

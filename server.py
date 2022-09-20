@@ -5,6 +5,102 @@ from common import log
 from world import World
 
 
+class BaseConnection(asyncio.Protocol):
+    def connection_made(self, transport):
+        self.transport = transport
+        self.player = None
+        self.state = 'welcome'
+        self.world = World()
+
+        welcome_message = self.world.config['welcome_message']
+        if type(welcome_message) == list:
+            self.send(*welcome_message)
+        else:
+            self.send(welcome_message)
+        self.send_prompt(2)
+
+    def send(self, *txts):
+        raise NotImplementedError()
+    
+    def send_line(self, line=''):
+        self.send(line + '\r\n')
+
+    def send_prompt(self, lines_before=1):
+        for _ in range(lines_before):
+            self.send_line()
+
+        if self.state == 'welcome':
+            self.send('Enter your name (or + to create a new character): ')
+        elif self.state == 'password' or self.state == 'create_password':
+            self.send('Your password: ')
+        elif self.state == 'create_username':
+            self.send('Enter the name you will use: ')
+        elif self.state == 'create_password_again':
+            self.send('Please re-enter your password: ')
+        elif self.state == 'playing':
+            self.send('> ')
+
+    def process(self, line):
+        getattr(self, 'process_' + self.state)(line)
+    
+    def process_welcome(self, line):
+        if line == '+':
+            self.send_line('Welcome!')
+            self.state = 'create_username'
+            self.send_prompt()
+            return
+
+        self.player = self.world.retrieve_player_data(line)
+        if not self.player:
+            self.send_line('- That name is not known here.')
+            self.send_prompt()
+            return
+
+        self.state = 'password'
+        self.send_prompt(0)
+
+    def process_password(self, line):
+        if line == '':
+            self.state = 'welcome'
+            self.send_prompt()
+            return
+
+        self.send_line('- Incorrect password.')
+        self.send_prompt()
+
+    def process_create_username(self, line):
+        if line == '':
+            self.send_prompt()
+            return
+        
+        self.player = line
+        self.state = 'create_password'
+        self.send_prompt(0)
+
+    def process_create_password(self, line):
+        if line == '':
+            self.send_prompt()
+            return
+        
+        self.player = (self.player, line)
+        self.state = 'create_password_again'
+        self.send_prompt(0)
+    
+    def process_create_password_again(self, line):
+        if line != self.player[1]:
+            self.send_line('- Passwords do not match.')
+            self.state = 'create_password'
+            self.send_prompt()
+            return
+        
+        self.state = 'playing'
+        self.send_prompt()
+    
+    def process_playing(self, line):
+        self.send_line(f'What do you mean, "{line}"?  That is ridiculous.')
+        self.send_prompt()
+
+
 # Byte codes for Telnet escape sequences
 class Telnet:
     IAC           = 255
@@ -31,43 +127,19 @@ class Ansi:
     HOME_MOVE     = CSI + b'1~'
 
 
-class BaseConnection(asyncio.Protocol):
-    def connection_made(self, transport):
-        self.transport = transport
-        self.player = None
-        self.state = 'welcome'
-        self.world = World()
-
-        self.send(self.world.config['welcome_message'])
-        self.send('Enter your name (or + to create a new character): ')
-
-    def send(self, txt):
-        raise NotImplementedError()
-    
-    def send_line(self, line=''):
-        self.send(line + '\r\n')
-
-    def process(self, line):
-        getattr(self, 'process_' + self.state)(line)
-    
-    def process_welcome(self, line):
-        if line == '':
-            self.send_line()
-            self.send('Enter your name (or + to create a new character): ')
-        else:
-            self.player = line
-            self.state = 'password'
-            self.send('Your password: ')
-
-    def process_password(self, line):
-        if line == '':
-            self.state = 'welcome'
-            self.send_line()
-            self.send('Enter your name (or + to create a new character): ')
-        else:
-            self.send_line('Incorrect password.')
-            self.send_line()
-            self.send('Your password: ')
+format_codes = {
+    '{reset}': b'\x1B[0m',
+    '{black}': b'\x1B[30m',
+    '{red}': b'\x1B[31m',
+    '{green}': b'\x1B[32m',
+    '{yellow}': b'\x1B[33m',
+    '{blue}': b'\x1B[34m',
+    '{magenta}': b'\x1B[35m',
+    '{cyan}': b'\x1B[36m',
+    '{white}': b'\x1B[37m',
+    '{default}': b'\x1B[39m',
+    '{bold}': b'\x1B[1m',
+}
 
 
 class TelnetConnection(BaseConnection):
@@ -134,21 +206,22 @@ class TelnetConnection(BaseConnection):
                     self.process(self.buffer.decode('ascii'))
                     self.buffer = b''
                 elif self.should_buffer(byte):   # Only echo and record what we are willing to accept
-                    self.transport.write(bytes([byte]) if self.state != 'password' else b'*')
+                    self.transport.write(bytes([byte]) if self.state not in ('password', 'create_password', 'create_password_again') else b'*')
                     self.buffer += bytes([byte])
             else:
                 pass   # Ignore null and upper-half bytes
 
     def should_buffer(self, byte):
-        if self.state == 'welcome':
+        if self.state in ('welcome', 'create_username'):
             if len(self.buffer) == 0:
                 return chr(byte) in (string.ascii_uppercase + '+')
-            elif self.buffer[0] != ord('+'):
+            elif self.state != 'welcome' or self.buffer[0] != ord('+'):
                 return chr(byte) in string.ascii_letters
             else:
                 return False
         else:
             return chr(byte) in TelnetConnection.all_bufferable_characters
 
-    def send(self, txt):
-        self.transport.write(txt.encode('ascii'))
+    def send(self, *txts):
+        for txt in txts:
+            self.transport.write(format_codes.get(txt, False) or txt.encode('ascii'))
