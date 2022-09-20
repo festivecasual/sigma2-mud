@@ -38,6 +38,8 @@ class World(metaclass=Singleton):
         self.config_root = None
         self.config = {
             'verbose': True,
+            'telnet_host': None,
+            'telnet_port': 4000,
         }
         self.rooms = {}
         self.doors = {}
