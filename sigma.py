@@ -4,7 +4,7 @@ import argparse
 
 from world import World
 from common import log
-from server import TelnetConnection
+from network import TelnetConnection
 
 
 script_root = Path(__file__).resolve().parent
