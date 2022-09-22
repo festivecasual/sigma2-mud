@@ -1,23 +1,32 @@
 import asyncio
 import string
+import time
+
+import bcrypt
 
 from common import log
 from world import World
+from character import Player
 
 
 class BaseConnection(asyncio.Protocol):
     def connection_made(self, transport):
         self.transport = transport
         self.player = None
+        self.last_activity = time.time()
         self.state = 'welcome'
-        self.world = World()
+        self.peername = None
 
-        welcome_message = self.world.config['welcome_message']
+        welcome_message = World().config['welcome_message']
         if type(welcome_message) == list:
             self.send(*welcome_message)
         else:
             self.send(welcome_message)
         self.send_prompt(2)
+
+    def connection_lost(self, exc):
+        if self.player:
+            World().remove_player(self.player)
 
     def send(self, *txts):
         raise NotImplementedError()
@@ -41,17 +50,18 @@ class BaseConnection(asyncio.Protocol):
             self.send('> ')
 
     def process(self, line):
+        self.last_activity = time.time()
         getattr(self, 'process_' + self.state)(line)
     
     def process_welcome(self, line):
         if line == '+':
-            self.send_line('Welcome!')
+            self.send_line('- Welcome!')
             self.state = 'create_username'
             self.send_prompt()
             return
 
-        self.player = self.world.retrieve_player_data(line)
-        if not self.player:
+        self.player = World().retrieve_player_data(line)
+        if not self.player[1]:
             self.send_line('- That name is not known here.')
             self.send_prompt()
             return
@@ -62,17 +72,55 @@ class BaseConnection(asyncio.Protocol):
     def process_password(self, line):
         if line == '':
             self.state = 'welcome'
+            self.player = None
             self.send_prompt()
             return
+        
+        player_proto, name, password_hash = self.player
+        if bcrypt.checkpw(line.encode('ascii'), password_hash.encode('ascii')):
+            self.player = Player(self, name, **player_proto)
+            if World().insert_player(self.player):
+                self.send_line('- Welcome back!')
+                self.state = 'playing'
+                self.send_prompt()
+            else:
+                self.player = World().players.get(name, None)
+                if self.player:
+                    self.send_line('- You are already logged in.  Rejoining...')
+                    log(f'Player <{name}>: Remapping from {self.player.connection.peername} to {self.peername}', 'CLIENT')
 
-        self.send_line('- Incorrect password.')
-        self.send_prompt()
+                    # Disassociate the old connection from the player and then close it
+                    self.player.connection.player = None
+                    self.player.connection.transport.close()
+
+                    # Associate the existing player with this new connection
+                    self.player.connection = self
+
+                    self.state = 'playing'
+                    self.send_prompt()
+                else:
+                    self.send_line('- Unable to join, please try again later.')
+                    self.state = 'welcome'
+                    self.send_prompt()
+        else:
+            self.send_line('- Incorrect password.')
+            self.send_prompt()
 
     def process_create_username(self, line):
         if line == '':
             self.send_prompt()
             return
         
+        if len(line) < 3:
+            self.send_line('- That name is quite short, please try another.')
+            self.send_prompt()
+            return
+
+        if World().retrieve_player_data(line)[1]:
+            self.send_line('- That name is already in use.')
+            self.send_prompt()
+            return
+
         self.player = line
         self.state = 'create_password'
         self.send_prompt(0)
@@ -82,19 +130,32 @@ class BaseConnection(asyncio.Protocol):
             self.send_prompt()
             return
         
-        self.player = (self.player, line)
+        self.player = (self.player, bcrypt.hashpw(line.encode('ascii'), bcrypt.gensalt()).decode('ascii'))
         self.state = 'create_password_again'
         self.send_prompt(0)
     
     def process_create_password_again(self, line):
-        if line != self.player[1]:
+        name, password_hash = self.player
+        if not bcrypt.checkpw(line.encode('ascii'), password_hash.encode('ascii')):
             self.send_line('- Passwords do not match.')
+            self.player = name
             self.state = 'create_password'
             self.send_prompt()
             return
-        
-        self.state = 'playing'
-        self.send_prompt()
+
+        self.player = Player(self, name)
+        if World().insert_player(self.player):
+            self.state = 'playing'
+            self.send_prompt()
+
+            World().save_player_data(self.player)
+            World().update_player_password(self.player, password_hash)
+            log(f'New user committed to database: <{name}> from {self.peername}', 'LOGIN')
+        else:
+            self.send_line('- Something went wrong.  Please try again.')
+            self.player = None
+            self.state = 'welcome'
+            self.send_prompt()
     
     def process_playing(self, line):
         self.send_line(f'What do you mean, "{line}"?  That is ridiculous.')
@@ -149,7 +210,7 @@ class TelnetConnection(BaseConnection):
         super(TelnetConnection, self).connection_made(transport)
 
         self.peername = transport.get_extra_info('peername')[0] + ':' + str(transport.get_extra_info('peername')[1])
-        log(f'Telnet connection received from {self.peername}', 'CLIENT')
+        log(f'Telnet connection received from {self.peername}', 'CLIENT', trivial=True)
 
         self.buffer = b''
         self.ansi_escape = b''
@@ -163,6 +224,11 @@ class TelnetConnection(BaseConnection):
 
         # Disable line buffering
         self.transport.write(bytes([Telnet.IAC, Telnet.WONT, Telnet.LINEMODE]))
+
+    def connection_lost(self, exc):
+        super(TelnetConnection, self).connection_lost(exc)
+
+        log(f'Telnet connection from {self.peername} closed', 'CLIENT', trivial=True)
 
     def data_received(self, data):
         for byte in data:
@@ -206,7 +272,7 @@ class TelnetConnection(BaseConnection):
                     self.process(self.buffer.decode('ascii'))
                     self.buffer = b''
                 elif self.should_buffer(byte):   # Only echo and record what we are willing to accept
-                    self.transport.write(bytes([byte]) if self.state not in ('password', 'create_password', 'create_password_again') else b'*')
+                    self.transport.write(bytes([byte]) if 'password' not in self.state else b'*')
                     self.buffer += bytes([byte])
             else:
                 pass   # Ignore null and upper-half bytes

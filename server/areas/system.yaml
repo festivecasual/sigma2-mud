@@ -1,0 +1,8 @@
+name: Somewhere Strange
+rooms:
+  start:
+    name: The First Room
+    desc: >
+      You are in the first room.  To the north you see a beach.
+    exits:
+      n: island:shore

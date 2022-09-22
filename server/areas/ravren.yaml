@@ -44,6 +44,19 @@ rooms:
       u:
         target: palace-interior
         door: palace-crypt
+denizens:
+  captainx:
+    name: Captain Xavier
+    keywords:
+      - captain
+      - xavier
+    short: Captain Xavier, a swarthy sea captain, is here.
+    desc: >
+      Captain Xavier regards you with a cynical air.  You are not the
+      first traveler he will see today, nor the last, nor the most
+      important.
+    stats:
+      level: 10
 doors:
   palace-front:
   palace-crypt:

@@ -1,4 +1,5 @@
 import sys
+from datetime import datetime
 
 
 class Singleton(type):
@@ -16,8 +17,8 @@ def log(text, label='', trivial=False, exit_code=None):
     stream = sys.stdout if not exit_code else sys.stderr
 
     if label == '':
-        label = 'LOG' if exit_code else 'FATAL'
+        label = 'LOG' if not exit_code else 'FATAL'
     if not trivial or verbose_config:
-        stream.write(f"{label : <12} | {text}\r\n")
+        stream.write(f"{label : <12} | {datetime.now().isoformat()} | {text}\r\n")
     if exit_code:
         sys.exit(exit_code)

@@ -3,6 +3,7 @@ import json
 
 import yaml
 
+from character import Denizen
 from common import log, Singleton
 
 
@@ -37,14 +38,20 @@ class World(metaclass=Singleton):
     def __init__(self):
         self.config_root = None
         self.config = {
-            'verbose': True,
+            'verbose': False,
             'telnet_host': None,
             'telnet_port': 4000,
             'welcome_message': ['{bold}', 'Welcome to ', '{cyan}', 'sigma2-mud', '{reset}', '!'],
+            'default_location': 'system:start',
         }
+        
         self.rooms = {}
         self.doors = {}
         self.areas = {}
+        self.denizens = {}
+        self.players = {}
+
+        self.denizen_sources = {}
 
     def setup(self, config_root):
         # Setting up a world always starts from a cleanly-initialized object
@@ -68,7 +75,7 @@ class World(metaclass=Singleton):
         if not db_file.exists():
             log('No database found, initializing a blank one', 'DATABASE')
             con = sqlite3.connect(db_file)
-            con.cursor().execute('CREATE TABLE players (username text primary key, data text)')
+            con.cursor().execute('CREATE TABLE players (username text primary key, password_hash text, data text)')
             con.commit()
             con.close()
 
@@ -96,14 +103,15 @@ class World(metaclass=Singleton):
                 except KeyError:
                     log(f'Unable to resolve door <{exit_.door}> (from room <{room_id}>, direction <{direction}>)', exit_code=1)
 
-    def load_area(self, area_id, name=None, rooms={}, doors={}):
-        if not name:
-            name = area_id
+        # Ensure the default location is available for use
+        assert self.config['default_location'] in self.rooms
 
+    def load_area(self, area_id, name=None, rooms={}, doors={}, denizens={}):
         area = {
-            'name': name,
+            'name': name or area_id,
             'rooms': {},
             'doors': {},
+            'denizen_sources': {},
         }
 
         for room_id, room in rooms.items():
@@ -118,19 +126,59 @@ class World(metaclass=Singleton):
             except TypeError as e:
                 log(str(e), exit_code=1)
 
+        for denizen_id, denizen in denizens.items():
+            try:
+                area['denizen_sources'][canonical_id(area_id, denizen_id, only_local=True)] = (area_id, denizen_id, denizen)
+            except TypeError as e:
+                log(str(e), exit_code=1)
+
         self.areas[area_id] = area
         self.rooms.update(area['rooms'])
         self.doors.update(area['doors'])
+        self.denizen_sources.update(area['denizen_sources'])
+
+    def insert_player(self, player):
+        if player.id in self.players:
+            return False
+        
+        self.players[player.id] = player
+
+        log(f'Successful login: <{player.name}> from {player.connection.peername}', 'LOGIN')
+        # TODO: Add to room
+        return True
+
+    def remove_player(self, player):
+        if player.id in self.players and self.players[player.id] == player:
+            log(f'Logout: <{player.name}> from {player.connection.peername}', 'LOGOUT')
+            del self.players[player.id]
+
+    def database_connection(self):
+        return sqlite3.connect(self.config_root / 'world.db')
 
     def retrieve_player_data(self, name):
-        con = sqlite3.connect(self.config_root / 'world.db')
-        result = con.cursor().execute('SELECT data FROM players WHERE username = ?', (name, )).fetchone()
+        con = self.database_connection()
+        result = con.cursor().execute('SELECT data, password_hash FROM players WHERE username = ?', (name, )).fetchone()
         con.close()
 
         if not result:
-            return None
+            return None, None, None
         else:
-            return json.loads(result[0])
+            return json.loads(result[0]), name, result[1]
+
+    def save_player_data(self, player):
+        con = self.database_connection()
+        result = con.cursor().execute('''
+            INSERT INTO players (username, data) VALUES (?, ?)
+            ON CONFLICT (username) DO UPDATE SET data=excluded.data
+        ''', (player.name, json.dumps(player.to_proto())))
+        con.commit()
+        con.close()
+
+    def update_player_password(self, player, password_hash):
+        con = self.database_connection()
+        result = con.cursor().execute('UPDATE players SET password_hash=? WHERE username = ?', (password_hash, player.name))
+        con.commit()
+        con.close()
 
 
 class Room:
