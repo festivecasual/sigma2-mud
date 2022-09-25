@@ -54,6 +54,7 @@ class ParsedMessage(object):
         self.direct_object = do
         self.indirect_object = ido
         self.prepositions = prepositions
+        self.speaker = None
 
 
 class MessageParser(object):
@@ -89,3 +90,11 @@ class MessageParser(object):
                 idx2 = len(split_message)
             phrases.append(split_message[idx:idx2])
         return phrases
+
+
+def process_command(parsed_message, register):
+    for i in sorted(register.keys()):
+        for register_item in register[i]:
+            if parsed_message.verb == register_item[0]:
+                return register_item[1](parsed_message)
+    return False

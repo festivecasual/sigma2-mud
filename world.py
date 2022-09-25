@@ -5,7 +5,7 @@ import yaml
 
 from character import Denizen
 from common import log, Singleton
-
+from commands.commands import register_commands
 
 directions = {
     'n': 'north',
@@ -44,6 +44,7 @@ class World(metaclass=Singleton):
             'welcome_message': ['{bold}', 'Welcome to ', '{cyan}', 'sigma2-mud', '{reset}', '!'],
             'default_location': 'system:start',
         }
+        self.command_register = None
         
         self.rooms = {}
         self.doors = {}
@@ -136,6 +137,7 @@ class World(metaclass=Singleton):
         self.rooms.update(area['rooms'])
         self.doors.update(area['doors'])
         self.denizen_sources.update(area['denizen_sources'])
+        self.command_register = register_commands()
 
     def insert_player(self, player):
         if player.id in self.players:
