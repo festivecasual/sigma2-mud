@@ -198,16 +198,16 @@ class TelnetConnection(BaseConnection):
     all_bufferable_characters = string.ascii_letters + string.digits + string.punctuation + ' '
 
     format_codes = {
-        '{reset}': (b'\x1B[0m', ''),
-        '{black}': (b'\x1B[30m', 'color: black;'),
-        '{red}': (b'\x1B[31m', 'color: red;'),
-        '{green}': (b'\x1B[32m', 'color: green;'),
-        '{yellow}': (b'\x1B[33m', 'color: yellow;'),
-        '{blue}': (b'\x1B[34m', 'color: blue;'),
-        '{magenta}': (b'\x1B[35m', 'color: magenta;'),
-        '{cyan}': (b'\x1B[36m', 'color: cyan;'),
-        '{white}': (b'\x1B[37m', 'color: white;'),
-        '{bold}': (b'\x1B[1m', 'font-weight: bold;'),
+        '{reset}': b'\x1B[0m',
+        '{black}': b'\x1B[30m',
+        '{red}': b'\x1B[31m',
+        '{green}': b'\x1B[32m',
+        '{yellow}': b'\x1B[33m',
+        '{blue}': b'\x1B[34m',
+        '{magenta}': b'\x1B[35m',
+        '{cyan}': b'\x1B[36m',
+        '{white}': b'\x1B[37m',
+        '{bold}': b'\x1B[1m',
     }
 
     def connection_made(self, transport):
