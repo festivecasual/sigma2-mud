@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>sigma2 Web Client</title>
+        <meta charset="utf-8">
+        <meta name="viewport" content=""width=device-width, initial-scale=1">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/normalize/8.0.1/normalize.min.css">
+        <style>
+            body {
+                font-family:'Gill Sans', 'Gill Sans MT', Calibri, 'Trebuchet MS', sans-serif;
+                padding: 4em;
+            }
+
+            div.main {
+                height: 20em;
+                overflow: auto;
+                margin-bottom: 1em;
+            }
+            
+            div.terminal {
+                padding: 2em;
+                background-color: #333;
+                width: 80%;
+                font-family:'Courier New', Courier, monospace;
+                color: #fef;
+                border-radius: 1em;
+            }
+        </style>
+    </head>
+
+    <body >
+        <h1>sigma2 Web Client</h1>
+        <div class="terminal main" id="output">[Not Connected]</div>
+        <div class="terminal"><span id="prompt"></span><span id="input_display"></span></div>
+        <script>
+            const ws = new WebSocket("ws://localhost:4444")
+            const output = document.getElementById('output')
+            const prompt = document.getElementById('prompt')
+            const input_display = document.getElementById('input_display')
+
+            const format_codes = {
+                '{black}': 'color: black;',
+                '{red}': 'color: red;',
+                '{green}': 'color: green;',
+                '{yellow}': 'color: yellow;',
+                '{blue}': 'color: blue;',
+                '{magenta}': 'color: magenta;',
+                '{cyan}': 'color: cyan;',
+                '{white}': 'color: white;',
+                '{bold}': 'font-weight: bold;',
+            }
+
+            var state = ''
+            var mask = RegExp()
+
+            var input = ''
+
+            addEventListener('keydown', (event) => {
+                event.preventDefault()
+            })
+
+            addEventListener('keyup', (event) => {
+                if (event.code == 'Enter') {
+                    ws.send(input)
+                    output.innerHTML += '<span style="background-color: #555; font-weight: bold;">' + prompt.innerHTML + input + '</span><br>'
+                    output.scrollTop = output.scrollHeight
+                    input = ''
+                    input_display.innerText = ''
+                    event.preventDefault()
+                } else if (event.code == 'Backspace' || event.code == 'Delete') {
+                    input = input.slice(0, -1)
+                    input_display.innerText = input
+                    event.preventDefault()
+                } else if (event.key.length == 1) {
+                    if (mask.test(input + event.key)) {
+                        input += event.key
+                        input_display.innerText = input
+                        event.preventDefault()
+                    }
+                }
+            })
+
+            ws.addEventListener('open', (event) => {
+                output.innerHTML = '<span style="color: #aaa">[Connected]</span><br>'
+                output.scrollTop = output.scrollHeight
+            })
+
+            ws.addEventListener('message', (event) => {
+                let data = JSON.parse(event.data)
+
+                if (data['context'] == 'state') {
+                    state = data['content']['state']
+                    mask = RegExp(data['content']['mask'])
+                    return
+                }
+
+                let html = '<span>'
+                let formats = ''
+                data['content'].forEach(el => {
+                    if (el in format_codes) {
+                        formats += format_codes[el]
+                        html += '</span><span style="' + formats + '">'
+                    } else if (el == '{reset}') {
+                        formats = ''
+                        html += '</span><span>'
+                    } else {
+                        html += el.replace("\r\n", '<br>').replace(' ', '&nbsp;')
+                    }
+                })
+                html += '</span>'
+
+                if (data['context'] == 'game') {
+                    output.innerHTML += html
+                    output.scrollTop = output.scrollHeight
+                } else if (data['context'] == 'prompt') {
+                    prompt.innerHTML = html
+                }
+            })
+        </script>
+    </body>
+</html>

@@ -1,8 +1,10 @@
 import asyncio
 import string
 import time
+import json
 
 import bcrypt
+from websockets.server import WebSocketServerProtocol
 
 from common import log
 from world import World
@@ -11,82 +13,86 @@ from character import Player
 
 class BaseConnection(asyncio.Protocol):
     def connection_made(self, transport):
+        super().connection_made(transport)
+
         self.transport = transport
         self.player = None
         self.last_activity = time.time()
-        self.state = 'welcome'
         self.peername = None
 
-        welcome_message = World().config['welcome_message']
-        if type(welcome_message) == list:
-            self.send(*welcome_message)
-        else:
-            self.send(welcome_message)
-        self.send_prompt(2)
-
     def connection_lost(self, exc):
+        super().connection_lost(exc)
+
         if self.player:
             World().remove_player(self.player)
 
-    def send(self, *txts):
+    def write(self, *txts, context='game'):
         raise NotImplementedError()
     
-    def send_line(self, line=''):
-        self.send(line + '\r\n')
+    def write_line(self, line=''):
+        self.write(line + '\r\n')
 
-    def send_prompt(self, lines_before=1):
+    def write_prompt(self, lines_before=1):
         for _ in range(lines_before):
-            self.send_line()
+            self.write_line()
 
-        if self.state == 'welcome':
-            self.send('Enter your name (or + to create a new character): ')
-        elif self.state == 'password' or self.state == 'create_password':
-            self.send('Your password: ')
-        elif self.state == 'create_username':
-            self.send('Enter the name you will use: ')
-        elif self.state == 'create_password_again':
-            self.send('Please re-enter your password: ')
-        elif self.state == 'playing':
-            self.send('> ')
+        if self.interpreter_state == 'welcome':
+            self.write('Enter your name (or + to create a new character): ', context='prompt')
+        elif self.interpreter_state == 'password' or self.interpreter_state == 'create_password':
+            self.write('Your password: ', context='prompt')
+        elif self.interpreter_state == 'create_username':
+            self.write('Enter the name you will use: ', context='prompt')
+        elif self.interpreter_state == 'create_password_again':
+            self.write('Please re-enter your password: ', context='prompt')
+        elif self.interpreter_state == 'playing':
+            self.write('> ', context='prompt')
+
+    def write_greeting(self):
+        welcome_message = World().config['welcome_message']
+        if type(welcome_message) == list:
+            self.write(*welcome_message)
+        else:
+            self.write(welcome_message)
+        self.write_prompt(2)
 
     def process(self, line):
         self.last_activity = time.time()
-        getattr(self, 'process_' + self.state)(line)
+        getattr(self, 'process_' + self.interpreter_state)(line)
     
     def process_welcome(self, line):
         if line == '+':
-            self.send_line('- Welcome!')
-            self.state = 'create_username'
-            self.send_prompt()
+            self.write_line('- Welcome!')
+            self.interpreter_state = 'create_username'
+            self.write_prompt()
             return
 
         self.player = World().retrieve_player_data(line)
         if not self.player[1]:
-            self.send_line('- That name is not known here.')
-            self.send_prompt()
+            self.write_line('- That name is not known here.')
+            self.write_prompt()
             return
 
-        self.state = 'password'
-        self.send_prompt(0)
+        self.interpreter_state = 'password'
+        self.write_prompt(0)
 
     def process_password(self, line):
         if line == '':
-            self.state = 'welcome'
+            self.interpreter_state = 'welcome'
             self.player = None
-            self.send_prompt()
+            self.write_prompt()
             return
         
         player_proto, name, password_hash = self.player
         if bcrypt.checkpw(line.encode('ascii'), password_hash.encode('ascii')):
             self.player = Player(self, name, **player_proto)
             if World().insert_player(self.player):
-                self.send_line('- Welcome back!')
-                self.state = 'playing'
-                self.send_prompt()
+                self.write_line('- Welcome back!')
+                self.interpreter_state = 'playing'
+                self.write_prompt()
             else:
                 self.player = World().players.get(name, None)
                 if self.player:
-                    self.send_line('- You are already logged in.  Rejoining...')
+                    self.write_line('- You are already logged in.  Rejoining...')
                     log(f'Player <{name}>: Remapping from {self.player.connection.peername} to {self.peername}', 'CLIENT')
 
                     # Disassociate the old connection from the player and then close it
@@ -96,70 +102,70 @@ class BaseConnection(asyncio.Protocol):
                     # Associate the existing player with this new connection
                     self.player.connection = self
 
-                    self.state = 'playing'
-                    self.send_prompt()
+                    self.interpreter_state = 'playing'
+                    self.write_prompt()
                 else:
-                    self.send_line('- Unable to join, please try again later.')
-                    self.state = 'welcome'
-                    self.send_prompt()
+                    self.write_line('- Unable to join, please try again later.')
+                    self.interpreter_state = 'welcome'
+                    self.write_prompt()
         else:
-            self.send_line('- Incorrect password.')
-            self.send_prompt()
+            self.write_line('- Incorrect password.')
+            self.write_prompt()
 
     def process_create_username(self, line):
         if line == '':
-            self.send_prompt()
+            self.write_prompt()
             return
         
         if len(line) < 3:
-            self.send_line('- That name is quite short, please try another.')
-            self.send_prompt()
+            self.write_line('- That name is quite short, please try another.')
+            self.write_prompt()
             return
 
         if World().retrieve_player_data(line)[1]:
-            self.send_line('- That name is already in use.')
-            self.send_prompt()
+            self.write_line('- That name is already in use.')
+            self.write_prompt()
             return
 
         self.player = line
-        self.state = 'create_password'
-        self.send_prompt(0)
+        self.interpreter_state = 'create_password'
+        self.write_prompt(0)
 
     def process_create_password(self, line):
         if line == '':
-            self.send_prompt()
+            self.write_prompt()
             return
         
         self.player = (self.player, bcrypt.hashpw(line.encode('ascii'), bcrypt.gensalt()).decode('ascii'))
-        self.state = 'create_password_again'
-        self.send_prompt(0)
+        self.interpreter_state = 'create_password_again'
+        self.write_prompt(0)
     
     def process_create_password_again(self, line):
         name, password_hash = self.player
         if not bcrypt.checkpw(line.encode('ascii'), password_hash.encode('ascii')):
-            self.send_line('- Passwords do not match.')
+            self.write_line('- Passwords do not match.')
             self.player = name
-            self.state = 'create_password'
-            self.send_prompt()
+            self.interpreter_state = 'create_password'
+            self.write_prompt()
             return
 
         self.player = Player(self, name)
         if World().insert_player(self.player):
-            self.state = 'playing'
-            self.send_prompt()
+            self.interpreter_state = 'playing'
+            self.write_prompt()
 
             World().save_player_data(self.player)
             World().update_player_password(self.player, password_hash)
             log(f'New user committed to database: <{name}> from {self.peername}', 'LOGIN')
         else:
-            self.send_line('- Something went wrong.  Please try again.')
+            self.write_line('- Something went wrong.  Please try again.')
             self.player = None
-            self.state = 'welcome'
-            self.send_prompt()
+            self.interpreter_state = 'welcome'
+            self.write_prompt()
     
     def process_playing(self, line):
-        self.send_line(f'What do you mean, "{line}"?  That is ridiculous.')
-        self.send_prompt()
+        self.write_line(f'What do you mean, "{line}"?  That is ridiculous.')
+        self.write_prompt()
 
 
 # Byte codes for Telnet escape sequences
@@ -188,26 +194,24 @@ class Ansi:
     HOME_MOVE     = CSI + b'1~'
 
 
-format_codes = {
-    '{reset}': b'\x1B[0m',
-    '{black}': b'\x1B[30m',
-    '{red}': b'\x1B[31m',
-    '{green}': b'\x1B[32m',
-    '{yellow}': b'\x1B[33m',
-    '{blue}': b'\x1B[34m',
-    '{magenta}': b'\x1B[35m',
-    '{cyan}': b'\x1B[36m',
-    '{white}': b'\x1B[37m',
-    '{default}': b'\x1B[39m',
-    '{bold}': b'\x1B[1m',
-}
-
-
 class TelnetConnection(BaseConnection):
     all_bufferable_characters = string.ascii_letters + string.digits + string.punctuation + ' '
 
+    format_codes = {
+        '{reset}': (b'\x1B[0m', ''),
+        '{black}': (b'\x1B[30m', 'color: black;'),
+        '{red}': (b'\x1B[31m', 'color: red;'),
+        '{green}': (b'\x1B[32m', 'color: green;'),
+        '{yellow}': (b'\x1B[33m', 'color: yellow;'),
+        '{blue}': (b'\x1B[34m', 'color: blue;'),
+        '{magenta}': (b'\x1B[35m', 'color: magenta;'),
+        '{cyan}': (b'\x1B[36m', 'color: cyan;'),
+        '{white}': (b'\x1B[37m', 'color: white;'),
+        '{bold}': (b'\x1B[1m', 'font-weight: bold;'),
+    }
+
     def connection_made(self, transport):
-        super(TelnetConnection, self).connection_made(transport)
+        super().connection_made(transport)
 
         self.peername = transport.get_extra_info('peername')[0] + ':' + str(transport.get_extra_info('peername')[1])
         log(f'Telnet connection received from {self.peername}', 'CLIENT', trivial=True)
@@ -225,8 +229,11 @@ class TelnetConnection(BaseConnection):
         # Disable line buffering
         self.transport.write(bytes([Telnet.IAC, Telnet.WONT, Telnet.LINEMODE]))
 
+        self.interpreter_state = 'welcome'
+        self.write_greeting()
+
     def connection_lost(self, exc):
-        super(TelnetConnection, self).connection_lost(exc)
+        super().connection_lost(exc)
 
         log(f'Telnet connection from {self.peername} closed', 'CLIENT', trivial=True)
 
@@ -272,22 +279,74 @@ class TelnetConnection(BaseConnection):
                     self.process(self.buffer.decode('ascii'))
                     self.buffer = b''
                 elif self.should_buffer(byte):   # Only echo and record what we are willing to accept
-                    self.transport.write(bytes([byte]) if 'password' not in self.state else b'*')
+                    self.transport.write(bytes([byte]) if 'password' not in self.interpreter_state else b'*')
                     self.buffer += bytes([byte])
             else:
                 pass   # Ignore null and upper-half bytes
 
     def should_buffer(self, byte):
-        if self.state in ('welcome', 'create_username'):
+        if self.interpreter_state in ('welcome', 'create_username'):
             if len(self.buffer) == 0:
                 return chr(byte) in (string.ascii_uppercase + '+')
-            elif self.state != 'welcome' or self.buffer[0] != ord('+'):
+            elif self.interpreter_state != 'welcome' or self.buffer[0] != ord('+'):
                 return chr(byte) in string.ascii_letters
             else:
                 return False
         else:
             return chr(byte) in TelnetConnection.all_bufferable_characters
 
-    def send(self, *txts):
+    def write(self, *txts, context='game'):
         for txt in txts:
-            self.transport.write(format_codes.get(txt, False) or txt.encode('ascii'))
+            self.transport.write(self.format_codes.get(txt, False) or txt.encode('ascii'))
+
+
+class WebsocketConnection(BaseConnection, WebSocketServerProtocol):
+    def write(self, *txts, context='game'):
+        async def _send():
+            await self.ensure_open()
+            await self.websocket_send(json.dumps({
+                'context': context,
+                'content': txts,
+            }))
+
+        loop = asyncio.get_running_loop()
+        loop.create_task(_send())
+
+    def _get_interpreter_state(self):
+        return self._interpreter_state
+    
+    def _set_interpreter_state(self, state):
+        self._interpreter_state = state
+
+        if self._interpreter_state == 'welcome':
+            mask = "^((\\+)|([A-Z][A-Z,a-z]*))$"
+        elif self._interpreter_state == 'create_username':
+            mask = "^([A-Z][A-Z,a-z]*)$"
+        else:
+            mask = ""
+
+        async def _send():
+            await self.ensure_open()
+            await self.websocket_send(json.dumps({
+                'context': 'state',
+                'content': {
+                    'state': state,
+                    'mask': mask,
+                },
+            }))
+        
+        loop = asyncio.get_running_loop()
+        loop.create_task(_send())
+
+    interpreter_state = property(_get_interpreter_state, _set_interpreter_state)
+
+    # Capture websocket subclass async methods distinctly to avoid confusion with BaseConnection methods
+    websocket_send = WebSocketServerProtocol.send
+    websocket_recv = WebSocketServerProtocol.recv
+
+
+async def websocket_handler(websocket):
+    websocket.interpreter_state = 'welcome'
+    websocket.write_greeting()
+    while True:
+        websocket.process(await websocket.websocket_recv())
