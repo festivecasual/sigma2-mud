@@ -19,7 +19,7 @@ class Character:
 
 class Denizen(Character):
     def __init__(self, area_id, source_id, name, location, stats={}, keywords=[], short=None, desc=None):
-        super(Denizen, self).__init__(name, location, stats)
+        super().__init__(name, location, stats)
 
         self.area_id = area_id
         self.source_id = source_id
@@ -35,7 +35,7 @@ class Denizen(Character):
 
 class Player(Character):
     def __init__(self, connection, name, location=None, stats={}):
-        super(Player, self).__init__(name, location, stats)
+        super().__init__(name, location, stats)
 
         self.connection = connection
 

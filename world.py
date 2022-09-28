@@ -41,6 +41,8 @@ class World(metaclass=Singleton):
             'verbose': False,
             'telnet_host': None,
             'telnet_port': 4000,
+            'websocket_host': None,
+            'websocket_port': 4444,
             'welcome_message': ['{bold}', 'Welcome to ', '{cyan}', 'sigma2-mud', '{reset}', '!'],
             'default_location': 'system:start',
         }
