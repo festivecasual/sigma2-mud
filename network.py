@@ -4,6 +4,7 @@ import time
 import json
 
 import bcrypt
+import websockets
 from websockets.server import WebSocketServerProtocol
 
 from common import log
@@ -346,7 +347,16 @@ class WebsocketConnection(BaseConnection, WebSocketServerProtocol):
 
 
 async def websocket_handler(websocket):
+    websocket.peername = f'{websocket.remote_address[0]}:{str(websocket.remote_address[1])}'
+    log(f'Websocket connection received from {websocket.peername}', 'CLIENT', trivial=True)
     websocket.interpreter_state = 'welcome'
     websocket.write_greeting()
     while True:
-        websocket.process(await websocket.websocket_recv())
+        try:
+            websocket.process(await websocket.websocket_recv())
+        except websockets.ConnectionClosedOK:
+            log(f'Websocket connection from {websocket.peername} closed normally', 'CLIENT', trivial=True)
+            break
+        except websockets.ConnectionClosedError:
+            log(f'Websocket connection from {websocket.peername} closed forcefully', 'CLIENT', trivial=True)
+            break

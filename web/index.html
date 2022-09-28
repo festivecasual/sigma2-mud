@@ -25,18 +25,36 @@
                 color: #fef;
                 border-radius: 1em;
             }
+
+            .cmdline, .cmdline:focus {
+                color: #fef;
+                font-weight: bold;
+                border: none;
+                background: none;
+                outline:none;
+                width: 100%;
+            }
+
+            .cmdline.error {
+                border: 1px solid #a00 !important;
+            }
         </style>
     </head>
 
     <body >
         <h1>sigma2 Web Client</h1>
         <div class="terminal main" id="output">[Not Connected]</div>
-        <div class="terminal"><span id="prompt"></span><span id="input_display"></span></div>
+        <div class="terminal"><span id="prompt"></span>
+            <form id="cmdline_form">
+                <input type="text" class="cmdline" id="input">
+            </form>
+        </div>
         <script>
             const ws = new WebSocket("ws://localhost:4444")
             const output = document.getElementById('output')
             const prompt = document.getElementById('prompt')
-            const input_display = document.getElementById('input_display')
+            const input = document.getElementById('input')
+            const form = document.getElementById('cmdline_form')
 
             const format_codes = {
                 '{black}': 'color: black;',
@@ -53,36 +71,46 @@
             var state = ''
             var mask = RegExp()
 
-            var input = ''
+            function checkInput() {
+                if (!mask.test(input.value)) {
+                    input.classList.add('error')
+                    return false
+                } else {
+                    input.classList.remove('error')
+                    return true
+                }
+            }
 
-            addEventListener('keydown', (event) => {
+            form.addEventListener('submit', (event) => {
                 event.preventDefault()
+                if (!checkInput()) {
+                    return
+                }
+                ws.send(input.value)
+                let displayed = input.value
+                if (input.type == 'password') {
+                    displayed = '*'.repeat(input.value.length)
+                }
+                output.innerHTML += '<span style="background-color: #555; font-weight: bold;">' + prompt.innerHTML + displayed + '</span><br>'
+                output.scrollTop = output.scrollHeight
+                input.value = ""
             })
 
-            addEventListener('keyup', (event) => {
-                if (event.code == 'Enter') {
-                    ws.send(input)
-                    output.innerHTML += '<span style="background-color: #555; font-weight: bold;">' + prompt.innerHTML + input + '</span><br>'
-                    output.scrollTop = output.scrollHeight
-                    input = ''
-                    input_display.innerText = ''
-                    event.preventDefault()
-                } else if (event.code == 'Backspace' || event.code == 'Delete') {
-                    input = input.slice(0, -1)
-                    input_display.innerText = input
-                    event.preventDefault()
-                } else if (event.key.length == 1) {
-                    if (mask.test(input + event.key)) {
-                        input += event.key
-                        input_display.innerText = input
-                        event.preventDefault()
-                    }
-                }
+            input.addEventListener('input', (event) => {
+                checkInput()
+            })
+
+            addEventListener('load', (event) => {
+                input.focus()
             })
 
             ws.addEventListener('open', (event) => {
-                output.innerHTML = '<span style="color: #aaa">[Connected]</span><br>'
+                output.innerHTML = '<br><span style="color: #aaa">[Connected]</span><br><br>'
                 output.scrollTop = output.scrollHeight
+            })
+
+            ws.addEventListener('close', (event) => {
+                output.innerHTML += '<br><span style="color: #aaa">[Disconnected]</span><br><br>'
             })
 
             ws.addEventListener('message', (event) => {
@@ -91,6 +119,11 @@
                 if (data['context'] == 'state') {
                     state = data['content']['state']
                     mask = RegExp(data['content']['mask'])
+                    if (state == 'password' || state == 'create_password') {
+                        input.type = 'password'
+                    } else {
+                        input.type = 'text'
+                    }
                     return
                 }
 
