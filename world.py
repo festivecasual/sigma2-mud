@@ -107,6 +107,8 @@ class World(metaclass=Singleton):
         # Ensure the default location is available for use
         assert self.config['default_location'] in self.rooms
 
+        self.command_register = register_commands()
+
     def load_area(self, area_id, name=None, rooms={}, doors={}, denizens={}):
         area = {
             'name': name or area_id,
@@ -137,7 +139,6 @@ class World(metaclass=Singleton):
         self.rooms.update(area['rooms'])
         self.doors.update(area['doors'])
         self.denizen_sources.update(area['denizen_sources'])
-        self.command_register = register_commands()
 
     def insert_player(self, player):
         if player.id in self.players:

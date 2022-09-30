@@ -70,7 +70,7 @@ class MessageParser(object):
 
     def split_message(self):
         message = self.raw_message
-        if self.raw_message[0] in single_character_aliases:
+        if self.raw_message and self.raw_message[0] in single_character_aliases:
             verb = single_character_aliases[self.raw_message[0]]
             message = f'{verb} {self.raw_message[1:]}'
         return message.split(" ")
