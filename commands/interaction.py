@@ -1,9 +1,14 @@
 from commands.commands import Alias, Command, CommandStatus
+from world import World, directions
 
 
 @Command
 def look(message):
-    message.speaker.send_line( str(message.speaker.location.desc))
+    w = World()
+    room = w.rooms[message.speaker.location]
+    message.speaker.send_line(f'[{room.name}]')
+    message.speaker.send_line(room.desc)
+    message.speaker.send_line(f'Exits: {",".join(directions[i] for i in room.exits)}')
     return CommandStatus.SUCCESS
 
 

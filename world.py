@@ -3,7 +3,7 @@ import json
 
 import yaml
 
-from character import Denizen
+from character import Character, Denizen, Player
 from common import log, Singleton
 from commands.commands import register_commands
 
@@ -24,14 +24,14 @@ directions = {
 valid_directions = directions.keys()
 
 
-def canonical_id(area, id, only_local=False):
-    components = id.split(':', 1)
+def canonical_id(area, _id, only_local=False):
+    components = _id.split(':', 1)
     if len(components) < 2:
-        return f'{area}:{id}'
+        return f'{area}:{_id}'
     elif only_local and components[0] != area:
-        log(f'External reference <{id}> provided when only a local one (in <{area}>) is valid', exit_code=1)
+        log(f'External reference <{_id}> provided when only a local one (in <{area}>) is valid', exit_code=1)
     else:
-        return id
+        return _id
 
 
 class World(metaclass=Singleton):
@@ -149,12 +149,14 @@ class World(metaclass=Singleton):
         self.players[player.id] = player
 
         log(f'Successful login: <{player.name}> from {player.connection.peername}', 'LOGIN')
-        # TODO: Add to room
+        #TODO: handle cases where we cannot find their location
+        self.rooms.get(player.location, None).add_character(player)
         return True
 
     def remove_player(self, player):
         if player.id in self.players and self.players[player.id] == player:
             log(f'Logout: <{player.name}> from {player.connection.peername}', 'LOGOUT')
+            self.rooms[player.location].remove_character(player.id)
             del self.players[player.id]
 
     def database_connection(self):
@@ -196,9 +198,10 @@ class Room:
         self.name = name
         self.desc = desc
         self.exits = {}
+        self._characters = {}
 
         for direction, exit_ in exits.items():
-            if not direction in valid_directions:
+            if direction not in valid_directions:
                 log(f'Area <{area_id}>: Room <{room_id}>: Invalid exit direction: {direction}', exit_code=1)
             
             if type(exit_) == dict:
@@ -208,6 +211,37 @@ class Room:
                     log(str(e), exit_code=1)
             else:
                 self.exits[direction] = Exit(area_id, room_id, direction, target=canonical_id(area_id, exit_))
+
+    @staticmethod
+    def _type_filter(collection_type, _type):
+        return (collection_type for key in collection_type if isinstance(collection_type[key], _type))
+
+    @property
+    def characters(self):
+        return self._type_filter(self._characters, Character)
+
+    @property
+    def players(self):
+        return self._type_filter(self._characters, Player)
+
+    @property
+    def denizens(self):
+        return self._type_filter(self._characters, Denizen)
+
+    def is_character_in_room(self, char_id):
+        return char_id in self.characters
+
+    def add_character(self, char):
+        if self.is_character_in_room(char.id):
+            log(f'Cannot add character {char.id} to room {self.id} because it is already there.')
+            return False
+        self._characters[char.id] = char
+
+    def remove_character(self, char):
+        if not self.is_character_in_room(char.id):
+            log(f"Cannot remove character {char.id} from room {self.id} because it is not there.")
+            return False
+        self._characters.pop(char.id)
 
 
 class Exit:
