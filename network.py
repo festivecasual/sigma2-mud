@@ -8,6 +8,7 @@ import websockets
 from websockets.server import WebSocketServerProtocol
 
 from common import log
+from command import MessageParser, process_command
 from world import World
 from character import Player
 
@@ -165,8 +166,13 @@ class BaseConnection(asyncio.Protocol):
             self.write_prompt()
     
     def process_playing(self, line):
-        self.write_line(f'What do you mean, "{line}"?  That is ridiculous.')
+
+        msg = MessageParser(line).parse()
+        msg.speaker = self.player
+        if process_command(msg, World().command_register) is False:
+            self.write_line(f'What do you mean, "{line}"?  That is ridiculous.')
         self.write_prompt()
+
 
 
 # Byte codes for Telnet escape sequences

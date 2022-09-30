@@ -5,7 +5,7 @@ import yaml
 
 from character import Denizen
 from common import log, Singleton
-
+from commands.commands import register_commands
 
 directions = {
     'n': 'north',
@@ -46,6 +46,7 @@ class World(metaclass=Singleton):
             'welcome_message': ['{bold}', 'Welcome to ', '{cyan}', 'sigma2-mud', '{reset}', '!'],
             'default_location': 'system:start',
         }
+        self.command_register = None
         
         self.rooms = {}
         self.doors = {}
@@ -107,6 +108,8 @@ class World(metaclass=Singleton):
 
         # Ensure the default location is available for use
         assert self.config['default_location'] in self.rooms
+
+        self.command_register = register_commands()
 
     def load_area(self, area_id, name=None, rooms={}, doors={}, denizens={}):
         area = {

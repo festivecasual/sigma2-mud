@@ -49,3 +49,6 @@ class Player(Character):
         }
 
     id = property(lambda self: self.name)
+
+    def send_line(self, line):
+        self.connection.write_line(line)
