@@ -49,6 +49,7 @@ class PrepositionalPhrase(object):
 class ParsedMessage(object):
     def __init__(self, verb, args, raw_text, do=None, ido=None, prepositions=None):
         self.verb = verb
+        self.mapped_verb = None
         self.args = args
         self.text = raw_text
         self.direct_object = do
@@ -93,8 +94,11 @@ class MessageParser(object):
 
 
 def process_command(parsed_message, register):
+    if parsed_message.verb == '':
+        return False
     for i in sorted(register.keys()):
         for register_item in register[i]:
-            if parsed_message.verb == register_item[0]:
+            if register_item[0].startswith(parsed_message.verb):
+                parsed_message.mapped_verb = register_item[0]
                 return register_item[1](parsed_message)
     return False

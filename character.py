@@ -1,4 +1,5 @@
 import uuid
+from common import log
 
 
 class Character:
@@ -15,6 +16,24 @@ class Character:
         self.hp = stats.get('hp', self.level * 15)
 
     id = property(lambda self: None)
+
+    def move(self, start_room, dest_room):
+        from world import Room
+        if not isinstance(start_room, Room) or not isinstance(dest_room, Room):
+            log(f"One or more rooms is invalid for move attempt. Attempted move failed.", "CHARACTER")
+            return False
+        if self.location != start_room.canonical_id:
+            log(f"Character {self.id} is not in room {start_room.canonical_id}. Attempted move failed.", "CHARACTER")
+            return False
+        if not start_room.remove_character(self):
+            log(f"Character {self.id} cannot be removed from room {start_room.id}. Attempted move failed", "CHARACTER")
+            return False
+        self.location = dest_room.canonical_id
+        if not dest_room.add_character(self):
+            log(f"Character {self.id} cannot be added to room {dest_room.id}. Attempted move failed", "CHARACTER")
+
+        # TODO: call look
+        return True
 
 
 class Denizen(Character):

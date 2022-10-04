@@ -195,6 +195,7 @@ class Room:
 
         self.id = room_id
         self.area_id = area_id
+        self.canonical_id = canonical_id(self.area_id, self.id)
         self.name = name
         self.desc = desc
         self.exits = {}
@@ -214,7 +215,10 @@ class Room:
 
     @staticmethod
     def _type_filter(collection_type, _type):
-        return (collection_type for key in collection_type if isinstance(collection_type[key], _type))
+        retval = {}
+        for i in (collection_type for key in collection_type if isinstance(collection_type[key], _type)):
+            retval = i
+        return retval
 
     @property
     def characters(self):
@@ -236,12 +240,14 @@ class Room:
             log(f'Cannot add character {char.id} to room {self.id} because it is already there.')
             return False
         self._characters[char.id] = char
+        return True
 
     def remove_character(self, char):
         if not self.is_character_in_room(char.id):
             log(f"Cannot remove character {char.id} from room {self.id} because it is not there.")
             return False
         self._characters.pop(char.id)
+        return True
 
 
 class Exit:
