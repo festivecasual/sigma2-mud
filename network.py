@@ -18,6 +18,7 @@ class BaseConnection(asyncio.Protocol):
         super().connection_made(transport)
 
         self.transport = transport
+        self.player_data = None
         self.player = None
         self.last_activity = time.time()
         self.peername = None
@@ -68,8 +69,8 @@ class BaseConnection(asyncio.Protocol):
             self.write_prompt()
             return
 
-        self.player = World().retrieve_player_data(line)
-        if not self.player[1]:
+        self.player_data = World().retrieve_player_data(line)
+        if not self.player_data[1]:
             self.write_line('- That name is not known here.')
             self.write_prompt()
             return
@@ -84,7 +85,7 @@ class BaseConnection(asyncio.Protocol):
             self.write_prompt()
             return
         
-        player_proto, name, password_hash = self.player
+        player_proto, name, password_hash = self.player_data
         if bcrypt.checkpw(line.encode('ascii'), password_hash.encode('ascii')):
             self.player = Player(self, name, **player_proto)
             if World().insert_player(self.player):
@@ -166,13 +167,11 @@ class BaseConnection(asyncio.Protocol):
             self.write_prompt()
     
     def process_playing(self, line):
-
         msg = MessageParser(line).parse()
         msg.speaker = self.player
         if process_command(msg, World().command_register) is False:
             self.write_line(f'What do you mean, "{line}"?  That is ridiculous.')
         self.write_prompt()
-
 
 
 # Byte codes for Telnet escape sequences
